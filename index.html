@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Radio BZZZ - MYOS by Sintu</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#121212">
+
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="logo.png">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        background: #121212;
+        color: #ffffff;
+        text-align: center;
+    }
+
+    h2 {
+        color: #ff4444;
+        margin: 15px 0 5px 0;
+    }
+
+    .sub-brand {
+        display: block;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 14px;
+        color: #aaaaaa;
+        margin-bottom: 15px;
+        font-weight: normal;
+    }
+
+    #map {
+        height: 40vh;
+        width: 100%;
+        border-bottom: 2px solid #333;
+    }
+
+    .nav-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin: 10px;
+    }
+
+    .nav-btn {
+        background: #333;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .nav-btn.active {
+        background: #ff4444;
+    }
+
+    #player-container {
+        background: #1a1a1a;
+        padding: 15px;
+        margin: 15px auto;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        border: 1px solid #333;
+    }
+
+    #now-playing {
+        font-size: 16px;
+        margin-bottom: 15px;
+        color: #ff4444;
+        font-weight: bold;
+    }
+
+    .custom-controls {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .control-btn {
+        background: #333;
+        border: none;
+        color: white;
+        font-size: 24px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.3s;
+    }
+
+    .control-btn:hover {
+        background: #444;
+    }
+
+    audio {
+        display: none;
+    }
+
+    #stations {
+        padding: 10px;
+        max-width: 600px;
+        margin: 0 auto;
+        margin-bottom: 30px;
+    }
+
+    .station-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #222;
+        margin: 10px auto;
+        padding: 12px 15px;
+        border-radius: 8px;
+        border-left: 4px solid #ff4444;
+    }
+
+    .station-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-grow: 1;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .station-info h4 {
+        margin: 0;
+        font-size: 16px;
+    }
+
+    .fav-btn {
+        background: none;
+        border: none;
+        color: #777;
+        font-size: 20px;
+        cursor: pointer;
+        transition: color 0.3s;
+    }
+
+    .fav-btn.favorited {
+        color: #ff4444;
+    }
+
+    .spinner {
+        display: none;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #ff4444;
+        animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+</head>
+
+<body>
+
+<h2>Radio BZZZ</h2>
+<span class="sub-brand">MYOS by Sintu</span>
+
+<div class="nav-buttons">
+    <button class="nav-btn active" id="btn-map" onclick="showView('map')"><i class="fas fa-map-marker-alt"></i> Map</button>
+    <button class="nav-btn" id="btn-fav" onclick="showView('fav')"><i class="fas fa-heart"></i> Favorites</button>
+</div>
+
+<div id="map-view">
+    <div id="map"></div>
+</div>
+
+<div id="player-container">
+    <div id="now-playing"><i class="fas fa-music"></i> Not Playing</div>
+    <audio id="player"></audio>
+    
+    <div class="custom-controls">
+        <button class="control-btn" id="btn-play" onclick="togglePlay()">▶️</button>
+        <button class="control-btn" id="btn-mute" onclick="toggleMute()">🔊</button>
+    </div>
+</div>
+
+<div id="stations">
+    <h3 id="section-title">Select a city on the map</h3>
+    <div id="station-list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script> 
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log(err));
+  });
+}
+
+// Cleaned up list with ONLY working stations. Added popular Bengali internet streams.
+var radioData = {
+    "Kolkata": [
+        { id: "kol1", name: "Radio Mirchi Bangla", url: "http://peridot.streamguys.com:7150/MirchiBangla" },
+        { id: "kol2", name: "Radio Milan (Bengali)", url: "https://stream.zeno.fm/4fbbkng5zwzuv" },
+        { id: "kol3", name: "Bhoot FM (Bengali)", url: "https://stream.zeno.fm/f1qf1n7pxqruv" },
+        { id: "kol4", name: "Radio Bhaipo (Bengali)", url: "https://stream.zeno.fm/y62eex9ed0quv" },
+        { id: "kol5", name: "Radio Net (Bengali)", url: "https://stream.zeno.fm/g6t4174m0tzuv" },
+        { id: "kol6", name: "AIR FM Gold", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8" },
+        { id: "kol7", name: "Vividh Bharati", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8" }
+    ],
+    "Guwahati": [
+        { id: "guw1", name: "AIR Guwahati", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio008/playlist.m3u8" }
+    ],
+    "Siliguri": [
+        { id: "sil1", name: "AIR Siliguri", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio007/playlist.m3u8" }
+    ],
+    "Lucknow": [
+        { id: "luc1", name: "AIR Lucknow", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio010/playlist.m3u8" }
+    ],
+    "Delhi": [
+        { id: "del1", name: "Radio Mirchi Hindi", url: "http://peridot.streamguys.com:7150/Mirchi" },
+        { id: "del2", name: "AIR Rainbow", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio002/playlist.m3u8" },
+        { id: "del3", name: "AIR FM Gold", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio002/playlist.m3u8" }
+    ],
+    "Jaipur": [
+        { id: "jai1", name: "AIR Jaipur", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio009/playlist.m3u8" }
+    ],
+    "Ahmedabad": [
+        { id: "ahm1", name: "AIR Ahmedabad", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio012/playlist.m3u8" }
+    ],
+    "Mumbai": [
+        { id: "mum1", name: "Radio Mirchi Hindi", url: "http://peridot.streamguys.com:7150/Mirchi" },
+        { id: "mum2", name: "Radio City", url: "http://prclive1.listenon.in:9960/" },
+        { id: "mum3", name: "AIR FM Gold", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio003/playlist.m3u8" }
+    ],
+    "Pune": [
+        { id: "pun1", name: "AIR Pune", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio006/playlist.m3u8" }
+    ],
+    "Hyderabad": [
+        { id: "hyd1", name: "AIR Hyderabad", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio011/playlist.m3u8" }
+    ],
+    "Bengaluru": [
+        { id: "ben1", name: "AIR Bengaluru", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio005/playlist.m3u8" }
+    ],
+    "Chennai": [
+        { id: "che1", name: "AIR Rainbow", url: "https://air.pc.cdn.bitgravity.com/air/live/pbaudio004/playlist.m3u8" }
+    ]
+};
+
+var cities = {
+    "Kolkata": [22.5726, 88.3639],
+    "Guwahati": [26.1445, 91.7362],
+    "Siliguri": [26.7271, 88.3953],
+    "Lucknow": [26.8467, 80.9462],
+    "Delhi": [28.6139, 77.2090],
+    "Jaipur": [26.9124, 75.7873],
+    "Ahmedabad": [23.0225, 72.5714],
+    "Mumbai": [19.0760, 72.8777],
+    "Pune": [18.5204, 73.8567],
+    "Hyderabad": [17.3850, 78.4867],
+    "Bengaluru": [12.9716, 77.5946],
+    "Chennai": [13.0827, 80.2707]
+};
+
+let favorites = JSON.parse(localStorage.getItem('myos_radio_favs')) || [];
+let currentView = 'map';
+let currentCity = null;
+let currentlyPlayingId = null;
+
+var map = L.map('map').setView([22.9734, 78.6569], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+for (let city in cities) {
+    let marker = L.marker(cities[city]).addTo(map);
+    marker.bindPopup(city);
+    marker.on("click", function() {
+        currentCity = city;
+        renderStations(radioData[city], `${city} Radio Stations`);
+        document.getElementById('stations').scrollIntoView({ behavior: 'smooth' });
+    });
+}
+
+function showView(view) {
+    currentView = view;
+    document.getElementById('btn-map').classList.remove('active');
+    document.getElementById('btn-fav').classList.remove('active');
+    
+    if (view === 'map') {
+        document.getElementById('btn-map').classList.add('active');
+        document.getElementById('map-view').style.display = 'block';
+        if (currentCity) {
+            renderStations(radioData[currentCity], `${currentCity} Radio Stations`);
+        } else {
+            document.getElementById("section-title").innerText = "Select a city on the map";
+            document.getElementById("station-list").innerHTML = "";
+        }
+    } else {
+        document.getElementById('btn-fav').classList.add('active');
+        document.getElementById('map-view').style.display = 'none';
+        renderFavorites();
+    }
+}
+
+function renderStations(stations, title) {
+    document.getElementById("section-title").innerText = title;
+    let listContainer = document.getElementById("station-list");
+    listContainer.innerHTML = "";
+
+    if (!stations || stations.length === 0) {
+        listContainer.innerHTML = "<p>No stations available for this city.</p>";
+        return;
+    }
+
+    stations.forEach(station => {
+        let isFav = favorites.some(fav => fav.id === station.id);
+        
+        let card = document.createElement("div");
+        card.className = "station-card";
+
+        let info = document.createElement("div");
+        info.className = "station-info";
+        info.innerHTML = `
+            <i class="fas fa-play-circle" style="color:#ff4444; font-size:20px;"></i>
+            <h4>${station.name}</h4>
+            <div class="spinner" id="spinner-${station.id}"></div>
+        `;
+        info.onclick = () => playRadio(station);
+
+        let favBtn = document.createElement("button");
+        favBtn.className = `fav-btn ${isFav ? 'favorited' : ''}`;
+        favBtn.innerHTML = isFav ? '<i class="fas fa-heart"></i>' : '<i class="far fa-heart"></i>';
+        favBtn.onclick = () => toggleFavorite(station);
+
+        card.appendChild(info);
+        card.appendChild(favBtn);
+        listContainer.appendChild(card);
+    });
+}
+
+function renderFavorites() {
+    renderStations(favorites, "❤️ Your Favorite Stations");
+}
+
+function toggleFavorite(station) {
+    let index = favorites.findIndex(fav => fav.id === station.id);
+    if (index === -1) {
+        favorites.push(station);
+    } else {
+        favorites.splice(index, 1);
+    }
+    localStorage.setItem('myos_radio_favs', JSON.stringify(favorites));
+    
+    if (currentView === 'fav') renderFavorites();
+    else if (currentCity) renderStations(radioData[currentCity], `${currentCity} Radio Stations`);
+}
+
+const audioPlayer = document.getElementById("player");
+const btnPlay = document.getElementById("btn-play");
+const btnMute = document.getElementById("btn-mute");
+let hls;
+
+function playRadio(station) {
+    // Removed the alert. It will just attempt to play directly.
+    document.getElementById("now-playing").innerHTML = "<i class='fas fa-music'></i> Playing: " + station.name;
+    
+    document.querySelectorAll('.spinner').forEach(s => s.style.display = 'none');
+    currentlyPlayingId = station.id;
+    let spinner = document.getElementById(`spinner-${station.id}`);
+    if (spinner) spinner.style.display = 'block';
+
+    if (Hls.isSupported() && station.url.includes(".m3u8")) {
+        if (hls) hls.destroy();
+        hls = new Hls();
+        hls.loadSource(station.url);
+        hls.attachMedia(audioPlayer);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            audioPlayer.play().catch(e => console.log(e));
+        });
+    } else {
+        audioPlayer.src = station.url;
+        audioPlayer.play().catch(e => console.log(e));
+    }
+}
+
+function togglePlay() {
+    if (!audioPlayer.src && !currentlyPlayingId) return;
+    
+    if (audioPlayer.paused) {
+        audioPlayer.play();
+    } else {
+        audioPlayer.pause();
+    }
+}
+
+function toggleMute() {
+    if (audioPlayer.muted) {
+        audioPlayer.muted = false;
+        btnMute.innerText = "🔊";
+    } else {
+        audioPlayer.muted = true;
+        btnMute.innerText = "🔇";
+    }
+}
+
+audioPlayer.addEventListener('play', () => { btnPlay.innerText = "⏸️"; });
+audioPlayer.addEventListener('pause', () => { btnPlay.innerText = "▶️"; });
+
+audioPlayer.addEventListener('waiting', () => {
+    if (currentlyPlayingId) {
+        let spinner = document.getElementById(`spinner-${currentlyPlayingId}`);
+        if (spinner) spinner.style.display = 'block';
+    }
+});
+
+audioPlayer.addEventListener('playing', () => {
+    if (currentlyPlayingId) {
+        let spinner = document.getElementById(`spinner-${currentlyPlayingId}`);
+        if (spinner) spinner.style.display = 'none';
+    }
+});
+</script>
+
+</body>
+</html>
